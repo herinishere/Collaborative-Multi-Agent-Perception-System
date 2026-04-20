@@ -11,7 +11,7 @@ from collections import deque
 from langgraph.graph import StateGraph, END
 
 LLM_MODEL = "llama-3.1-8b-instant" 
-client = Groq(api_key="YOUR_API_KEY")
+client = Groq(api_key="YOUR_GROQ_API_KEY")
 
 model = YOLO("yolov8m.pt") 
 processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
@@ -54,6 +54,7 @@ class BaseMemory(TypedDict):
     is_consistent: bool
     critic_notes: str
     fps: float
+    retry_count: int
 
 snapshot = {
     "objects": [], "object_counts": {}, "final_explanation": "",
@@ -147,7 +148,6 @@ def CriticAgent(state: BaseMemory):
     prompt = f"""You are a consistency checker for a real-time vision system.
 
 Detected objects: {state['objects']}
-
 Scene description: "{state['scene']}"
 
 Answer these two questions:
@@ -172,7 +172,18 @@ NOTES: <one sentence — either confirm accuracy or describe the specific contra
     for line in raw.splitlines():
         if "CONSISTENT:" in line: consistent = "yes" in line.lower()
         elif "NOTES:" in line: notes = line.split(":", 1)[1].strip()
-    return {"is_consistent": consistent, "critic_notes": notes}
+    retry_count = state.get("retry_count", 0)
+    return {
+        "is_consistent": consistent,
+        "critic_notes": notes,
+        "retry_count": retry_count
+    }
+
+def after_critic(state: BaseMemory)->str:
+    if not state.get("is_consistent", True) and state.get("retry_count", 0)<2:
+        state["retry_count"]=state.get("retry_count",0)+1
+        return "retry"
+    return "done"
 
 workflow = StateGraph(BaseMemory)
 workflow.add_node("vision", VisionAgent)
@@ -183,7 +194,11 @@ workflow.set_entry_point("vision")
 workflow.add_edge("vision", "context")
 workflow.add_edge("context", "language")
 workflow.add_edge("language", "critic")
-workflow.add_edge("critic", END)
+workflow.add_conditional_edges(
+    "critic",
+    after_critic,
+    {"retry": "language","done": END}
+)
 app = workflow.compile()
 
 def put_bg(frame, text, x, y, fs=0.6, color=(255, 255, 255)):
@@ -239,7 +254,7 @@ def run_system():
     fps=0.0
     fps_t=time.time()
     while True:
-        ret,frame=cv2.read()
+        ret,frame=cap.read()
         frame = cv2.resize(frame, (1280, 720))
         if frame_id%15==0:
             fps=10/(time.time()-fps_t)
@@ -248,7 +263,7 @@ def run_system():
                 snapshot["fps"] = fps
         if frame_id%30==0:
             if _pipeline_lock.acquire(blocking=False):
-                def _task(f=frame.copy):
+                def _task(f=frame.copy()):
                     try:
                         res=app.invoke({"frame":f})
                         with snapshot_lock:
