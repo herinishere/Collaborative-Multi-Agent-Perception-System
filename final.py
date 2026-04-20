@@ -179,7 +179,7 @@ NOTES: <one sentence — either confirm accuracy or describe the specific contra
         "retry_count": retry_count
     }
 
-def after_critic(state: BaseMemory)->str:
+def after_critic(state: BaseMemory):
     if not state.get("is_consistent", True) and state.get("retry_count", 0)<2:
         state["retry_count"]=state.get("retry_count",0)+1
         return "retry"
