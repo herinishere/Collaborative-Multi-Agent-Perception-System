@@ -257,7 +257,7 @@ def run_system():
         ret,frame=cap.read()
         frame = cv2.resize(frame, (1280, 720))
         if frame_id%15==0:
-            fps=10/(time.time()-fps_t)
+            fps=15/(time.time()-fps_t)
             fps_t=time.time()
             with snapshot_lock:
                 snapshot["fps"] = fps
