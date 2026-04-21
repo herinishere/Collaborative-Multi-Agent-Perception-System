@@ -118,7 +118,11 @@ def VisionAgent(state: BaseMemory):
 def ContextAgent(state: BaseMemory):
     raw_img = Image.fromarray(cv2.cvtColor(state["frame"], cv2.COLOR_BGR2RGB))
     inputs = processor(images=raw_img, return_tensors="pt")
-    out = model2.generate(**inputs, max_new_tokens=20)
+    retry = state.get("retry_count", 0)
+    if retry == 0:
+        out = model2.generate(**inputs, max_new_tokens=20)
+    else:
+        out=model2.generate(**inputs,max_new_tokens=20,do_sample=True,temperature=0.7,top_p=0.9)
     caption = processor.decode(out[0], skip_special_tokens=True).capitalize()
     return {"scene": caption}
 
@@ -172,7 +176,7 @@ NOTES: <one sentence — either confirm accuracy or describe the specific contra
     for line in raw.splitlines():
         if "CONSISTENT:" in line: consistent = "yes" in line.lower()
         elif "NOTES:" in line: notes = line.split(":", 1)[1].strip()
-    retry_count = state.get("retry_count", 0)
+    retry_count = state.get("retry_count", 0)+1
     return {
         "is_consistent": consistent,
         "critic_notes": notes,
@@ -183,6 +187,7 @@ def after_critic(state: BaseMemory):
     if not state.get("is_consistent", True) and state.get("retry_count", 0)<2:
         state["retry_count"]=state.get("retry_count",0)+1
         return "retry"
+    state["retry_count"] = 0
     return "done"
 
 workflow = StateGraph(BaseMemory)
@@ -197,7 +202,7 @@ workflow.add_edge("language", "critic")
 workflow.add_conditional_edges(
     "critic",
     after_critic,
-    {"retry": "language","done": END}
+    {"retry": "context","done": END}
 )
 app = workflow.compile()
 
@@ -248,7 +253,7 @@ def run_system():
     
     source=0 if choice=='1' else input("Video Path: ").strip().replace("'","").replace('"','')
     cap=cv2.VideoCapture(source)
-    mem_agent=MemoryAgent(interval=3.0)
+    mem_agent=MemoryAgent(interval=1.5)
     mem_agent.start()
     frame_id=0
     fps=0.0
