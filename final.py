@@ -18,7 +18,7 @@ processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base
 model2 = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
 
 class TemporalMemory:
-    def __init__(self,maxlen=250):
+    def __init__(self,maxlen=9):
         self._lock=threading.Lock()
         self._buffer=deque(maxlen=maxlen)
     
@@ -43,7 +43,7 @@ class TemporalMemory:
                     trend[obj]=trend.get(obj,0)+1
             return [k for k, v in sorted(trend.items(), key=lambda x: -x[1]) if v >= min_frames]
 
-temporal_mem = TemporalMemory(maxlen=250)
+temporal_mem = TemporalMemory(maxlen=9)
 
 class BaseMemory(TypedDict):
     frame: np.ndarray
@@ -86,7 +86,7 @@ class MemoryAgent:
     def run(self):
         with snapshot_lock:
             current_obs = set(snapshot["objects"])
-        dominant = set(temporal_mem.dominant_objects(n=100, min_frames=40))
+        dominant = set(temporal_mem.dominant_objects(n=4, min_frames=2))
         recent_sc=temporal_mem.scene_history(n=50)
         new_arrivals=current_obs-dominant
         disappeared=dominant-current_obs
