@@ -1,0 +1,8 @@
+opencv-python
+numpy
+pillow
+ultralytics
+transformers
+torch
+groq
+langgraph
